@@ -10,45 +10,38 @@ jobs:
           choco install tightvnc -y
           choco install ngrok -y
 
-      - name: 2. Configure VNC Password (Silent)
+      - name: 2. Configure VNC & Open Firewall
         shell: powershell
         run: |
+          # Kill stuck processes
           taskkill /F /IM tvnserver.exe /T 2>$null
+          
+          # 1. Open Windows Firewall for VNC
+          New-NetFirewallRule -DisplayName "AllowVNC" -Direction Inbound -LocalPort 5900 -Protocol TCP -Action Allow
+          
+          # 2. Registry setup for 'rohan202'
           $regPath = "HKLM:\SOFTWARE\TightVNC\Server"
           if (!(Test-Path $regPath)) { New-Item -Path $regPath -Force }
-          # 'rohan202' (8 chars max)
           [byte[]]$hexPass = 0x24, 0x4D, 0x45, 0x33, 0x05, 0xBC, 0x6E, 0x5B
           Set-ItemProperty -Path $regPath -Name "ControlPassword" -Value $hexPass
           Set-ItemProperty -Path $regPath -Name "Password" -Value $hexPass
+          
+          # 3. Start Server with extra 'wait' time
           & "C:\Program Files\TightVNC\tvnserver.exe" -install -silent
           & "C:\Program Files\TightVNC\tvnserver.exe" -start -silent
-          Start-Sleep -s 5
+          Start-Sleep -s 10
 
-      - name: 3. Start Ngrok Tunnel (Hard-Coded Auth)
+      - name: 3. Start Ngrok Tunnel
         shell: pwsh
         run: |
-          # HARD-CODED AUTH
           $AUTH = "35CVbaEQYxiYl84jnc1tPWd4uZ4_7HsPKKkUcuiuRMa2JiGoD"
           & ngrok config add-authtoken $AUTH
           
-          Write-Host "Verifying Local VNC Port..." -ForegroundColor White
-          # Wait for VNC port 5900 to be active locally
-          $portReady = $false
-          for ($i=0; $i -lt 10; $i++) {
-              if (Test-NetConnection -ComputerName localhost -Port 5900 -InformationLevel Quiet) {
-                  $portReady = $true; break
-              }
-              Write-Host "VNC Port not ready... waiting 2s"
-              Start-Sleep -s 2
-          }
-
-          if (-not $portReady) { Write-Host "VNC Server failed to start."; exit 1 }
-
           # Start Ngrok
           Start-Process ngrok -ArgumentList "tcp 5900 --log=stdout"
           Start-Sleep -s 15
           
-          $maxRetries = 15
+          $maxRetries = 20
           $uri = ""
           for ($i=0; $i -lt $maxRetries; $i++) {
               try {
@@ -56,8 +49,8 @@ jobs:
                   $uri = $response.tunnels[0].public_url
                   if ($uri) { break }
               } catch {
-                  Write-Host "Waiting for Ngrok API... ($($i+1))"
-                  Start-Sleep -s 4
+                  Write-Host "Searching for Ngrok Tunnel... ($($i+1))"
+                  Start-Sleep -s 5
               }
           }
 
@@ -69,7 +62,7 @@ jobs:
               Write-Host " PASSWORD: rohan202" -ForegroundColor White
               Write-Host "==========================================" -ForegroundColor Cyan
           } else {
-              Write-Host "ERROR: Could not fetch Tunnel URL. Ngrok may be blocked." -ForegroundColor Red
+              Write-Host "ERROR: Ngrok API not responding. Check logs above." -ForegroundColor Red
               exit 1
           }
 
