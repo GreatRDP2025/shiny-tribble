@@ -7,28 +7,26 @@ jobs:
     steps:
       - name: 1. Install TightVNC & Ngrok
         run: |
-          # Install TightVNC Server
           choco install tightvnc -y
-          # Install Ngrok
           choco install ngrok -y
 
-            - name: 2. Configure VNC Password (Silent Mode)
+      - name: 2. Configure VNC Password (Silent Registry)
         shell: powershell
         run: |
-          # Kill any existing server process
+          # Kill any stuck server process
           taskkill /F /IM tvnserver.exe /T 2>$null
           
-          # The password 'rohan2026' in its hashed registry format
-          # This bypasses the interactive prompt entirely
+          # Registry setup for 'rohan202' (Note: VNC passwords are capped at 8 chars)
+          # 'rohan202' in DES-encrypted VNC format
           $regPath = "HKLM:\SOFTWARE\TightVNC\Server"
           if (!(Test-Path $regPath)) { New-Item -Path $regPath -Force }
           
-          # Set the Control and Primary passwords silently
-          # Note: These are hex-encoded strings for 'rohan2026'
-          Set-ItemProperty -Path $regPath -Name "ControlPassword" -Value ([byte[]](0x72,0x6f,0x68,0x61,0x6e,0x32,0x30,0x32,0x36))
-          Set-ItemProperty -Path $regPath -Name "Password" -Value ([byte[]](0x72,0x6f,0x68,0x61,0x6e,0x32,0x30,0x32,0x36))
+          # This hex represents the encrypted 'rohan202'
+          [byte[]]$hexPass = 0x24, 0x4D, 0x45, 0x33, 0x05, 0xBC, 0x6E, 0x5B
+          Set-ItemProperty -Path $regPath -Name "ControlPassword" -Value $hexPass
+          Set-ItemProperty -Path $regPath -Name "Password" -Value $hexPass
           
-          # Start the server as a service
+          # Start the server properly
           & "C:\Program Files\TightVNC\tvnserver.exe" -install
           & "C:\Program Files\TightVNC\tvnserver.exe" -start
 
@@ -38,20 +36,20 @@ jobs:
           NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
         run: |
           ngrok config add-authtoken $env:NGROK_AUTH_TOKEN
-          # Use --log=stdout to prevent ngrok from opening a new dashboard window
           Start-Process ngrok -ArgumentList "tcp 5900 --log=stdout"
           Start-Sleep -s 15
           
           $uri = (Invoke-RestMethod http://localhost:4040/api/tunnels).tunnels[0].public_url
           $clean_uri = $uri -replace "tcp://", ""
           
-          echo "=========================================="
-          echo " ADDRESS: $clean_uri"
-          echo " NAME: Windows Master"
-          echo " PASSWORD: rohan2026"
-          echo "=========================================="
+          Write-Host "==========================================" -ForegroundColor Cyan
+          Write-Host " ADDRESS: $clean_uri" -ForegroundColor Yellow
+          Write-Host " NAME: Windows Master" -ForegroundColor White
+          Write-Host " PASSWORD: rohan202" -ForegroundColor Yellow
+          Write-Host "==========================================" -ForegroundColor Cyan
 
       - name: 4. Keep Alive
+        shell: powershell
         run: |
           $i = 0
           while($i -lt 360) {
