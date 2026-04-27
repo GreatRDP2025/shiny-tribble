@@ -16,48 +16,60 @@ jobs:
           taskkill /F /IM tvnserver.exe /T 2>$null
           $regPath = "HKLM:\SOFTWARE\TightVNC\Server"
           if (!(Test-Path $regPath)) { New-Item -Path $regPath -Force }
-          # Using 'rohan202' (8 chars max for VNC stability)
+          # 'rohan202' (8 chars max)
           [byte[]]$hexPass = 0x24, 0x4D, 0x45, 0x33, 0x05, 0xBC, 0x6E, 0x5B
           Set-ItemProperty -Path $regPath -Name "ControlPassword" -Value $hexPass
           Set-ItemProperty -Path $regPath -Name "Password" -Value $hexPass
           & "C:\Program Files\TightVNC\tvnserver.exe" -install -silent
           & "C:\Program Files\TightVNC\tvnserver.exe" -start -silent
+          Start-Sleep -s 5
 
-      - name: 3. Start Ngrok Tunnel & Wait for Ready
+      - name: 3. Start Ngrok Tunnel (Hard-Coded Auth)
         shell: pwsh
-        env:
-          NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
         run: |
-          ngrok config add-authtoken $env:NGROK_AUTH_TOKEN
-          # Start ngrok in background
+          # HARD-CODED AUTH
+          $AUTH = "35CVbaEQYxiYl84jnc1tPWd4uZ4_7HsPKKkUcuiuRMa2JiGoD"
+          & ngrok config add-authtoken $AUTH
+          
+          Write-Host "Verifying Local VNC Port..." -ForegroundColor White
+          # Wait for VNC port 5900 to be active locally
+          $portReady = $false
+          for ($i=0; $i -lt 10; $i++) {
+              if (Test-NetConnection -ComputerName localhost -Port 5900 -InformationLevel Quiet) {
+                  $portReady = $true; break
+              }
+              Write-Host "VNC Port not ready... waiting 2s"
+              Start-Sleep -s 2
+          }
+
+          if (-not $portReady) { Write-Host "VNC Server failed to start."; exit 1 }
+
+          # Start Ngrok
           Start-Process ngrok -ArgumentList "tcp 5900 --log=stdout"
+          Start-Sleep -s 15
           
-          Write-Host "Waiting for tunnel to stabilize..." -ForegroundColor Cyan
-          $maxRetries = 10
-          $retryCount = 0
+          $maxRetries = 15
           $uri = ""
-          
-          while ($retryCount -lt $maxRetries) {
+          for ($i=0; $i -lt $maxRetries; $i++) {
               try {
                   $response = Invoke-RestMethod http://localhost:4040/api/tunnels
                   $uri = $response.tunnels[0].public_url
                   if ($uri) { break }
               } catch {
-                  Write-Host "Scanning for tunnel... (Attempt $($retryCount + 1))"
-                  Start-Sleep -s 5
-                  $retryCount++
+                  Write-Host "Waiting for Ngrok API... ($($i+1))"
+                  Start-Sleep -s 4
               }
           }
 
           if ($uri) {
               $clean_uri = $uri -replace "tcp://", ""
-              Write-Host "==========================================" -ForegroundColor Cyan
-              Write-Host "   SUCCESS: SENTINEL IS LIVE             " -ForegroundColor Green
+              Write-Host "`n==========================================" -ForegroundColor Cyan
+              Write-Host "   SUCCESS: WINDOWS SENTINEL IS LIVE     " -ForegroundColor Green
               Write-Host " ADDRESS: $clean_uri" -ForegroundColor Yellow
               Write-Host " PASSWORD: rohan202" -ForegroundColor White
               Write-Host "==========================================" -ForegroundColor Cyan
           } else {
-              Write-Host "ERROR: Tunnel failed to start. Check your NGROK_AUTH_TOKEN." -ForegroundColor Red
+              Write-Host "ERROR: Could not fetch Tunnel URL. Ngrok may be blocked." -ForegroundColor Red
               exit 1
           }
 
@@ -65,6 +77,6 @@ jobs:
         shell: powershell
         run: |
           while($true) {
-            Write-Output "Windows Sentinel Active... $(Get-Date)"
+            Write-Output "Sentinel Pulse: $(Get-Date)"
             Start-Sleep -s 60
           }
